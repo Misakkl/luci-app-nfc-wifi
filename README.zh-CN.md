@@ -1,6 +1,19 @@
 # luci-app-nfc-wifi
 
-[English](README.md) | **简体中文**
+<p align="center">
+  <img src="https://img.shields.io/badge/Hardware-Xiaomi%20AX3000T%20(RD03%20%2F%20AN8855)-blue" alt="Hardware">
+  <img src="https://img.shields.io/badge/NFC%20Chip-FM11NT082C-00A6A6" alt="NFC Chip">
+  <img src="https://img.shields.io/badge/Interface-I2C%200x57-4B8BBE" alt="Interface">
+  <img src="https://img.shields.io/badge/Firmware-OpenWrt%20%7C%20LuCI-34A853" alt="Firmware">
+  <img src="https://img.shields.io/badge/License-MIT-EA7E20" alt="License">
+</p>
+
+<p align="center">
+  <a href="https://github.com/Misakkl/luci-app-nfc-wifi/releases"><img src="https://img.shields.io/github/v/release/Misakkl/luci-app-nfc-wifi?label=release&color=blue" alt="Release"></a>
+  <a href="https://github.com/Misakkl/luci-app-nfc-wifi/stargazers"><img src="https://img.shields.io/github/stars/Misakkl/luci-app-nfc-wifi?style=social" alt="Stars"></a>
+</p>
+
+<p align="center"><a href="README.md">English</a> | <b>简体中文</b></p>
 
 把路由器的 WiFi 名称和密码自动写入机身 NFC 标签，手机碰一下就能连上 WiFi。
 
