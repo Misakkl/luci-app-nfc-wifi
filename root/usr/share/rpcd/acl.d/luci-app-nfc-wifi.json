@@ -1,0 +1,14 @@
+{
+	"luci-app-nfc-wifi": {
+		"description": "NFC WiFi 标签同步",
+		"read": {
+			"uci": [ "nfc_wifi" ]
+		},
+		"write": {
+			"uci": [ "nfc_wifi" ],
+			"file": {
+				"/usr/sbin/nfc-wifi-sync": [ "exec" ]
+			}
+		}
+	}
+}

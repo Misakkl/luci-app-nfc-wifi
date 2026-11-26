@@ -1,0 +1,17 @@
+# 构建产物
+dist/
+*.ipk
+
+# Python
+__pycache__/
+*.py[cod]
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*~
+
+# 系统
+.DS_Store
+Thumbs.db

@@ -1,0 +1,225 @@
+#!/bin/sh
+# nfc-wifi-sync - 把当前 WiFi(AP) 的 SSID/密码写入 FM11NT082C NFC 标签
+#
+# 协议要点(详见 README):
+#   芯片   FM11NT082C, I2C 地址默认 0x57
+#   EEPROM 16 字节/页, 两字节大端地址
+#   NDEF 起点 0x10, CC(0x0C) 声明容量
+#
+# 写一页: i2ctransfer -y 0 w18@0x57 0x00 <addrH> <addrL> <16 个数据字节>
+# 读一页: i2ctransfer -y 0 w2@0x57 0x00 <addrH> <addrL> r16@0x57
+#
+# 注意: SSID/密码按 ASCII 处理(单字节)。非 ASCII 字符会算错长度。
+
+BUS="${NFC_BUS:-0}"
+ADDR="${NFC_ADDR:-0x57}"
+BASE=16
+END=128
+
+HEXBYTES=""
+
+log() { logger -t nfc-wifi-sync "$*"; }
+
+addhex() {
+	HEXBYTES="$HEXBYTES $(printf '0x%02x' "$1")"
+}
+
+str_to_hex() {
+	local s="$1" i=0 len c v
+	len=${#s}
+	while [ $i -lt $len ]; do
+		c=$(printf '%s' "$s" | cut -c$((i + 1)))
+		v=$(printf '%d' "'$c")
+		addhex "$v"
+		i=$((i + 1))
+	done
+}
+
+# 从 UCI 读硬件参数(可选,默认值在上面)
+load_conf() {
+	local v
+	v=$(uci -q get nfc_wifi.main.bus)
+	[ -n "$v" ] && BUS="$v"
+	v=$(uci -q get nfc_wifi.main.address)
+	[ -n "$v" ] && ADDR="$v"
+}
+
+find_ap() {
+	local sec mode dis s k
+	for sec in $(uci -q show wireless 2>/dev/null | grep '=wifi-iface' | sed 's/^wireless\.//; s/=.*//'); do
+		mode=$(uci -q get "wireless.$sec.mode")
+		dis=$(uci -q get "wireless.$sec.disabled")
+		[ "$mode" = "ap" ] || continue
+		[ "$dis" = "1" ] && continue
+		s=$(uci -q get "wireless.$sec.ssid")
+		k=$(uci -q get "wireless.$sec.key")
+		if [ -n "$s" ]; then
+			printf '%s\n%s\n' "$s" "$k"
+			return 0
+		fi
+	done
+	return 1
+}
+
+build() {
+	local ssid="$1" key="$2"
+	local sl kl cred pay tlv
+
+	sl=$(printf '%s' "$ssid" | wc -c)
+	kl=$(printf '%s' "$key" | wc -c)
+	sl=$((sl))
+	kl=$((kl))
+
+	if [ $kl -gt 0 ]; then
+		cred=$((35 + sl + kl))
+	else
+		cred=$((25 + sl))
+	fi
+	pay=$((4 + cred))
+	tlv=$((3 + 23 + pay))
+
+	if [ $tlv -gt 255 ]; then
+		log "record too large (tlv=$tlv), shorten SSID/password"
+		return 1
+	fi
+
+	HEXBYTES=""
+
+	# NDEF TLV + MIME 记录头
+	addhex 0x03
+	addhex "$tlv"
+	addhex 0xd2
+	addhex 0x17
+	addhex "$pay"
+	str_to_hex "application/vnd.wfa.wsc"
+
+	# Credential 属性
+	addhex 0x10; addhex 0x0e
+	addhex $((cred >> 8)); addhex $((cred & 0xff))
+
+	# Network Index
+	addhex 0x10; addhex 0x26; addhex 0x00; addhex 0x01; addhex 0x01
+
+	# SSID
+	addhex 0x10; addhex 0x45
+	addhex $((sl >> 8)); addhex $((sl & 0xff))
+	str_to_hex "$ssid"
+
+	# Auth Type
+	addhex 0x10; addhex 0x03; addhex 0x00; addhex 0x02
+	if [ $kl -gt 0 ]; then
+		addhex 0x00; addhex 0x20
+	else
+		addhex 0x00; addhex 0x01
+	fi
+
+	# Encryption Type
+	addhex 0x10; addhex 0x0f; addhex 0x00; addhex 0x02
+	if [ $kl -gt 0 ]; then
+		addhex 0x00; addhex 0x08
+	else
+		addhex 0x00; addhex 0x01
+	fi
+
+	# Network Key
+	if [ $kl -gt 0 ]; then
+		addhex 0x10; addhex 0x27
+		addhex $((kl >> 8)); addhex $((kl & 0xff))
+		str_to_hex "$key"
+	fi
+
+	# MAC Address(通配)
+	addhex 0x10; addhex 0x20; addhex 0x00; addhex 0x06
+	addhex 0xff; addhex 0xff; addhex 0xff; addhex 0xff; addhex 0xff; addhex 0xfe
+
+	return 0
+}
+
+write_tag() {
+	local addr ah al args n
+	addr=$BASE
+
+	while [ $# -gt 0 ]; do
+		args=""
+		n=0
+		while [ $n -lt 16 ]; do
+			if [ $# -gt 0 ]; then
+				args="$args $1"
+				shift
+			else
+				args="$args 0x00"
+			fi
+			n=$((n + 1))
+		done
+		ah=$((addr >> 8)); al=$((addr & 0xff))
+		i2ctransfer -y "$BUS" w18@"$ADDR" 0x$(printf '%02x' $ah) 0x$(printf '%02x' $al) $args 2>/dev/null || {
+			log "write failed at addr 0x$(printf '%02x%02x' $ah $al)"
+			return 1
+		}
+		addr=$((addr + 16))
+	done
+
+	# 清空后续整页到 END
+	while [ $addr -lt $END ]; do
+		ah=$((addr >> 8)); al=$((addr & 0xff))
+		i2ctransfer -y "$BUS" w18@"$ADDR" 0x$(printf '%02x' $ah) 0x$(printf '%02x' $al) \
+			0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 \
+			0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 2>/dev/null || return 1
+		addr=$((addr + 16))
+	done
+	return 0
+}
+
+verify_tag() {
+	local want got
+	want=$(printf '%s' "$1" | cut -d' ' -f2-6)
+	got=$(i2ctransfer -y "$BUS" w2@"$ADDR" 0x00 0x10 r5@"$ADDR" 2>/dev/null)
+	[ "$want" = "$got" ]
+}
+
+main() {
+	local ap ssid key expect forced enabled
+
+	[ "$1" = "--force" ] && forced=1
+
+	if [ -z "$forced" ]; then
+		enabled=$(uci -q get nfc_wifi.main.enabled)
+		if [ "$enabled" = "0" ]; then
+			log "disabled by config (nfc_wifi.main.enabled=0)"
+			return 0
+		fi
+	fi
+
+	load_conf
+
+	command -v i2ctransfer >/dev/null 2>&1 || {
+		log "i2ctransfer missing, run: opkg install i2c-tools"
+		return 1
+	}
+
+	ap=$(find_ap) || {
+		log "no enabled AP with ssid found"
+		return 1
+	}
+	ssid=$(printf '%s' "$ap" | sed -n 1p)
+	key=$(printf '%s' "$ap" | sed -n 2p)
+
+	[ -z "$ssid" ] && { log "empty ssid"; return 1; }
+
+	build "$ssid" "$key" || return 1
+
+	expect="$HEXBYTES"
+	# shellcheck disable=SC2086
+	set -- $HEXBYTES
+	write_tag "$@" || return 1
+
+	if verify_tag "$expect"; then
+		log "synced ok: ssid=$ssid keylen=${#key}"
+		return 0
+	fi
+
+	log "verify mismatch"
+	return 1
+}
+
+main "$@"

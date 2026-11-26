@@ -1,0 +1,19 @@
+#!/bin/sh
+# WiFi 接口 up 时，把当前凭据同步到 NFC 标签
+# 用 /tmp 里的指纹去重，避免每次 ifup 都写一遍 EEPROM
+
+[ "$ACTION" = "ifup" ] || exit 0
+
+case "$DEVICE" in
+	wlan* | ra* | phy* | ap* | *radio*) ;;
+	*) exit 0 ;;
+esac
+
+FP=$(uci -q show wireless 2>/dev/null | grep -E '\.(ssid|key)=' | sort | md5sum | cut -d' ' -f1)
+[ -z "$FP" ] && exit 0
+
+[ -f /tmp/nfc-wifi.fp ] && [ "$(cat /tmp/nfc-wifi.fp 2>/dev/null)" = "$FP" ] && exit 0
+
+if /usr/sbin/nfc-wifi-sync; then
+	echo "$FP" > /tmp/nfc-wifi.fp
+fi

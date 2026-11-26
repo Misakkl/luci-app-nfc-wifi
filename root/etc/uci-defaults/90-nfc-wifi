@@ -1,0 +1,5 @@
+#!/bin/sh
+# 首次安装后启用开机同步（仅在没有 IPKG_INSTROOT 时执行）
+[ -n "$IPKG_INSTROOT" ] && exit 0
+[ -x /etc/init.d/nfc-wifi-sync ] && /etc/init.d/nfc-wifi-sync enable
+exit 0

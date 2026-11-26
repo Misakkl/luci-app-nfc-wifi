@@ -1,0 +1,6 @@
+
+config nfc_wifi 'main'
+	option enabled '1'
+	# 可选：I2C 总线号与标签地址（默认 bus 0 / addr 0x57）
+	# option bus '0'
+	# option address '0x57'

@@ -1,0 +1,13 @@
+{
+	"admin/system/nfc-wifi": {
+		"title": "NFC 标签同步",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "nfc-wifi/nfc-wifi"
+		},
+		"depends": {
+			"acl": [ "luci-app-nfc-wifi" ]
+		}
+	}
+}
